@@ -16,7 +16,7 @@ from .store import ViewerStore
 
 
 def _public(data: dict[str, Any]) -> dict[str, Any]:
-    return {"models": list(data["models"].values()), "active": data["active"], "links": data["links"]}
+    return {"models": list(data["models"].values()), "active": data["active"], "links": data["links"], "areas": data.get("areas", {})}
 
 
 def _store(hass: HomeAssistant, connection, msg) -> ViewerStore | None:
@@ -28,7 +28,7 @@ def _store(hass: HomeAssistant, connection, msg) -> ViewerStore | None:
 
 @callback
 def async_register(hass: HomeAssistant) -> None:
-    for cmd in (ws_get, ws_subscribe, ws_set_link, ws_update_model, ws_delete_model):
+    for cmd in (ws_get, ws_subscribe, ws_set_link, ws_set_links, ws_set_areas, ws_update_model, ws_delete_model):
         websocket_api.async_register_command(hass, cmd)
 
 
@@ -73,6 +73,47 @@ def ws_set_link(hass, connection, msg):
         connection.send_error(msg["id"], "not_found", "Unknown model")
         return
     store.set_link(msg["model_id"], msg["global_id"], msg["entities"], msg.get("label"))
+    connection.send_result(msg["id"])
+
+
+LINK = vol.Schema(
+    {vol.Required("global_id"): str, vol.Required("entities"): [cv.entity_id], vol.Optional("label"): vol.Any(str, None)}
+)
+
+
+@websocket_api.websocket_command(
+    {vol.Required("type"): "ifc_viewer/link/set_many", vol.Required("model_id"): str, vol.Required("links"): [LINK]}
+)
+@websocket_api.require_admin
+@callback
+def ws_set_links(hass, connection, msg):
+    """Several links in one save (the setup wizard's pairings)."""
+    if not (store := _store(hass, connection, msg)):
+        return
+    if msg["model_id"] not in store.data["models"]:
+        connection.send_error(msg["id"], "not_found", "Unknown model")
+        return
+    store.set_links(msg["model_id"], msg["links"])
+    connection.send_result(msg["id"])
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "ifc_viewer/areas/set",
+        vol.Required("model_id"): str,
+        vol.Required("areas"): {str: vol.Any(str, None)},
+    }
+)
+@websocket_api.require_admin
+@callback
+def ws_set_areas(hass, connection, msg):
+    """Which Home Assistant area each IfcSpace is (GlobalId -> area_id; None removes)."""
+    if not (store := _store(hass, connection, msg)):
+        return
+    if msg["model_id"] not in store.data["models"]:
+        connection.send_error(msg["id"], "not_found", "Unknown model")
+        return
+    store.set_areas(msg["model_id"], msg["areas"])
     connection.send_result(msg["id"])
 
 

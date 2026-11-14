@@ -16,6 +16,11 @@ The viewer is built on [ifc-lite](https://github.com/LTplus-AG/ifc-lite) (Rust/W
 - Links update live on every open device. `HomeAssistant_<name>` properties already in the IFC (value = entity id) are picked up too.
 - Several models can be uploaded; each browser remembers which one it shows.
 
+**Set up Home Assistant from the model** (**Set up** in the top bar; opens by itself for a new model)
+1. **Rooms:** each IfcSpace becomes an HA area and each storey a floor. You can match existing ones instead; room names are matched across languages, e.g. *Køkken* ↔ *Kitchen*, *Opholdsrum* ↔ *Living Room*. Shafts and technical spaces are left out by default.
+2. **Devices:** finds the device elements in the model (lights, sensors, outlets, appliances, speakers, heaters, vents…) and suggests the HA device that fits each one best. Scoring uses compatible entities (a light fixture wants a `light`; a CO₂ sensor's PredefinedType wants `device_class: carbon_dioxide`), the same room, and shared words or the device model in the element's name. Pairs are chosen for the best overall match, one device per element. Good matches are ticked; you can change any of them and move devices into their room's area.
+3. **Place:** HA devices still not on the model can go into their room, all at once or one by one, or onto any element you pick.
+
 **BIM tools** (in the spirit of the ifc-lite web viewer, press <kbd>?</kbd> for shortcuts)
 - Model tree (spatial or by class) with search, hide, isolate and fit.
 - Full IFC properties: attributes, material, type, groups and every property and quantity set.

@@ -136,3 +136,55 @@ details.ifc > summary { cursor: pointer; color: var(--muted); font-size: 12px; }
   .btns button { padding: 7px 8px; }
   #status:not(.busy) { display: none; }
 }
+
+/* ---- setup wizard */
+.btns button.attn { color: #fff; background: var(--accent); font-weight: 600; }
+.setup { position: fixed; left: 12px; top: 58px; bottom: calc(12px + 46px + 10px); width: min(580px, calc(100% - 24px)); z-index: 10; display: none; flex-direction: column;
+  background: var(--panel); border-radius: 14px; box-shadow: 0 6px 28px rgba(0,0,0,.25); border: 1px solid var(--line); overflow: hidden; }
+.setup.show { display: flex; }
+.setup-open .dock { display: none !important; }
+.setup-h { display: flex; align-items: center; padding: 12px 14px 8px; font-size: 15px; }
+.setup-h .x { margin-left: auto; border: 0; background: none; color: var(--muted); font-size: 22px; cursor: pointer; }
+.setup-tabs { margin: 0 14px 8px; }
+.setup-body { flex: 1; overflow: auto; padding: 4px 14px 12px; font-size: 13px; }
+.setup-foot { display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-top: 1px solid var(--line); }
+.setup-foot .note { margin-right: auto; }
+.setup-foot .grow { flex: 1; }
+.setup button:not(.x):not([data-step]) { border: 1px solid var(--line); background: none; color: var(--accent); border-radius: 8px; padding: 5px 10px; font-size: 12px; cursor: pointer; white-space: nowrap; }
+.setup button.primary:not(.x) { background: var(--accent); color: #fff; border-color: var(--accent); font-size: 13px; padding: 7px 14px; font-weight: 600; }
+.setup button:disabled:not(.x) { opacity: .5; cursor: default; }
+.setup select, .setup input:not([type=checkbox]) { font: inherit; font-size: 12px; background: var(--chip); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 4px 6px; min-width: 0; }
+.sgroup { margin-top: 10px; }
+.srow { display: flex; align-items: center; gap: 8px; padding: 5px 4px; border-radius: 8px; }
+.srow.storey { font-weight: 600; border-bottom: 1px solid var(--line); border-radius: 0; }
+.srow.storey select { margin-left: auto; font-weight: 400; }
+.srow.space .sname { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+.srow.space select { width: 150px; }
+.srow.space input[data-name] { width: 130px; }
+.srow.off { opacity: .5; }
+.sname[data-goto]:hover, .dl[data-goto]:hover b { color: var(--accent); }
+.tag { font-size: 11px; padding: 1px 7px; border-radius: 999px; background: color-mix(in srgb, var(--muted) 18%, transparent); color: var(--muted); white-space: nowrap; }
+.tag.ok { background: color-mix(in srgb, var(--good) 18%, transparent); color: var(--good); }
+.scan { background: color-mix(in srgb, var(--accent) 7%, transparent); border-radius: 10px; padding: 9px 11px; line-height: 1.55; }
+.scan .opt { display: block; margin-top: 4px; color: var(--muted); font-size: 12px; }
+.drow, .prow { display: flex; align-items: center; gap: 8px; padding: 7px 4px; border-bottom: 1px solid var(--line); }
+.drow.done { opacity: .65; }
+.drow.on { background: color-mix(in srgb, var(--accent) 6%, transparent); }
+.dl { flex: 1; min-width: 0; cursor: pointer; }
+.dl b, .dl small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dl b { font-weight: 500; }
+.dl small { color: var(--muted); font-size: 11px; }
+.dr { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; width: 220px; flex: none; }
+.dr select { width: 100%; }
+.conf { font-size: 11px; font-weight: 600; }
+.conf.high { color: var(--good); } .conf.med { color: var(--fair); } .conf.low { color: var(--poor); }
+.mv { font-size: 11px; color: var(--muted); }
+.prow select { width: 130px; }
+.picking { background: var(--accent); color: #fff; border-radius: 10px; padding: 8px 10px; margin: 6px 0; display: flex; align-items: center; gap: 8px; }
+.picking button { margin-left: auto; background: #fff !important; }
+@media (max-width: 600px) {
+  .setup { left: 0; right: 0; width: auto; top: auto; bottom: 0; height: 72%; border-radius: 14px 14px 0 0; }
+  .dr { width: 150px; }
+  .srow.space select { width: 110px; }
+  .srow.space input[data-name] { display: none; }
+}

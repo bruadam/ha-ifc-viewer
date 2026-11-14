@@ -2,6 +2,7 @@
 // draws a marker on every linked element with its live state, and edits the links in the side panel.
 import css from './style.css?inline';
 import { createViewer, esc } from './viewer.js';
+import { createSetup } from './setup.js';
 
 const TOGGLE = new Set(['light', 'switch', 'fan', 'input_boolean', 'cover', 'media_player', 'climate', 'humidifier', 'siren', 'valve', 'automation', 'script']);
 const ON_STATES = new Set(['on', 'open', 'opening', 'playing', 'heat', 'cool', 'heat_cool', 'auto', 'dry', 'fan_only', 'home', 'unlocked']);
@@ -31,6 +32,7 @@ export class App {
           <button data-a="roof" title="Show the roof and ceilings">Roof</button>
         </div>
         <div class="btns admin" hidden>
+          <button data-a="setup" title="Create areas from the rooms and pair devices with the model">Set up</button>
           <button data-a="upload" title="Upload an IFC model">Upload</button>
           <button data-a="more" title="Model options">⋯</button>
         </div>
@@ -48,6 +50,7 @@ export class App {
       <input type="file" id="file" accept=".ifc" hidden>`);
     this.$ = (s) => document.querySelector(s);
     this.bind();
+    this.setup = createSetup(this);
     this.applyTheme();
     this.subscribe();
   }
@@ -67,6 +70,7 @@ export class App {
     }
     if (changed) { this.renderMarkers(); if (this.viewer.selected != null) this.renderPanel(true); }
   }
+  updateSetupButton() { this.$('[data-a="setup"]').classList.toggle('attn', !!this.viewer && this.setup.pending()); }
   setNarrow(n) { this.$('[data-a="menu"]').hidden = !n; }
 
   applyTheme() {
@@ -95,7 +99,7 @@ export class App {
     if (!m) { this.unload(); return this.showEmpty(); }
     this.$('#empty').hidden = true;
     if (!this.loaded || this.loaded.id !== m.id || this.loaded.uploaded !== m.uploaded) this.load(m);
-    else { this.renderMarkers(); this.viewer?.tools.lens.active && this.viewer.tools.lens.activate(this.viewer.tools.lens.active.id); this.renderPanel(true); this.renderEntitiesTab(); }
+    else { this.updateSetupButton(); this.setup.refresh(); this.renderMarkers(); this.viewer?.tools.lens.active && this.viewer.tools.lens.activate(this.viewer.tools.lens.active.id); this.renderPanel(true); this.renderEntitiesTab(); }
   }
 
   currentId() {
@@ -118,7 +122,10 @@ export class App {
         root: this.$('#view'), buf, name: m.name,
         hooks: {
           progress: (t) => this.status(t, true),
-          onSelect: () => { this.query = ''; this.renderPanel(); },
+          onSelect: (id) => {
+            if (this.pick && id != null) { const p = this.pick; this.pick = null; p.cb(id); }
+            this.query = ''; this.renderPanel();
+          },
           dockTabs: [{ id: 'ha', title: 'Entities', render: (body) => { this.entitiesBody = body; this.renderEntitiesTab(); } }],
         },
       });
@@ -128,6 +135,10 @@ export class App {
       this.viewer.setOption('roof', this.$('[data-a="roof"]').classList.contains('on'));
       this.renderMarkers();
       this.status(`${m.name} · ${this.viewer.elements.size} elements · ${Object.keys(this.links()).length} linked`);
+      this.updateSetupButton();
+      let seen = true;
+      try { seen = !!localStorage.getItem('ifc_viewer.setup.' + m.id); localStorage.setItem('ifc_viewer.setup.' + m.id, '1'); } catch { /* private mode */ }
+      if (this.admin && !seen && this.setup.pending()) this.setup.open('rooms');
     } catch (e) {
       console.error(e);
       this.unload();
@@ -137,6 +148,7 @@ export class App {
     if (this.pending) { const p = this.pending; this.pending = null; this.onData(this.data); if (p.id !== this.loaded?.id) this.load(p); }
   }
   unload() {
+    this.setup?.close();
     this.viewer?.destroy();
     this.viewer = null;
     this.loaded = null;
@@ -274,15 +286,17 @@ export class App {
     const linked = new Set(this.linkedElements().get(id)?.all || []);
     const room = v.roomOf(id), roomEnt = room && v.meta.entity(room.id);
     const roomNames = [roomEnt?.longName, roomEnt?.name].filter(Boolean).map((s) => s.toLowerCase());
+    const roomArea = roomEnt && this.data.areas?.[this.loaded.id]?.[roomEnt.globalId];
     const reg = this.hass.entities || {}, devs = this.hass.devices || {}, areas = this.hass.areas || {};
-    const areaOf = (eid) => { const r = reg[eid]; const a = r?.area_id || devs[r?.device_id]?.area_id; return a ? areas[a]?.name || '' : ''; };
+    const areaIdOf = (eid) => { const r = reg[eid]; return r?.area_id || devs[r?.device_id]?.area_id || null; };
+    const areaOf = (eid) => { const a = areaIdOf(eid); return a ? areas[a]?.name || '' : ''; };
     const words = q.toLowerCase().split(/\s+/).filter(Boolean);
     const out = [];
     for (const eid of Object.keys(this.hass.states)) {
       if (linked.has(eid)) continue;
       const area = areaOf(eid), name = this.name(eid);
       const hay = `${eid} ${name} ${area} ${devs[reg[eid]?.device_id]?.name || ''}`.toLowerCase();
-      const inRoom = area && roomNames.some((r) => r.includes(area.toLowerCase()) || area.toLowerCase().includes(r));
+      const inRoom = roomArea ? areaIdOf(eid) === roomArea : area && roomNames.some((r) => r.includes(area.toLowerCase()) || area.toLowerCase().includes(r));
       if (words.length ? !words.every((w) => hay.includes(w)) : !inRoom) continue;
       let score = inRoom ? 10 : 0;
       if (words.length && name.toLowerCase().startsWith(words[0])) score += 5;
@@ -398,6 +412,7 @@ export class App {
       switch (a) {
         case 'menu': this.el.dispatchEvent(new Event('hass-toggle-menu', { bubbles: true, composed: true })); break;
         case 'markers': case 'spaces': case 'roof': b.classList.toggle('on'); v?.setOption(a, b.classList.contains('on')); break;
+        case 'setup': if (this.viewer) this.setup.isOpen ? this.setup.close() : this.setup.open(); break;
         case 'upload': pop.hidden = true; replaceId = null; file.click(); break;
         case 'more': pop.hidden = !pop.hidden; break;
         case 'rename': { pop.hidden = true; const m = this.data.models.find((x) => x.id === this.loaded?.id); const n = m && prompt('Model name', m.name); if (n) await this.hass.callWS({ type: 'ifc_viewer/model/update', model_id: m.id, name: n }); break; }
@@ -417,6 +432,7 @@ export class App {
         default:
       }
     });
+    window.addEventListener('keydown', (e) => { if (e.key === 'Escape' && this.pick) { this.pick = null; this.setup.refresh(); this.status('Picking cancelled'); } }, true);
     document.addEventListener('dblclick', (e) => { const lk = e.target.closest('.lk'); if (lk) this.viewer?.fit(+lk.dataset.lk); });
     // entity search box
     document.addEventListener('input', (e) => {

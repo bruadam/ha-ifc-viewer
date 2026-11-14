@@ -16,18 +16,19 @@ from .const import MODELS_DIR, SIGNAL_UPDATED, STORAGE_KEY, STORAGE_VERSION
 
 
 class ViewerStore:
-    """Models: {id: {name, filename, size, uploaded}}; links: {model_id: {global_id: {entities, label}}}."""
+    """Models: {id: {name, filename, size, uploaded}}; links: {model_id: {global_id: {entities, label}}};
+    areas: {model_id: {space global_id: area_id}} (which Home Assistant area each IfcSpace is)."""
 
     def __init__(self, hass: HomeAssistant) -> None:
         self.hass = hass
         self._store: Store[dict[str, Any]] = Store(hass, STORAGE_VERSION, STORAGE_KEY)
-        self.data: dict[str, Any] = {"models": {}, "links": {}, "active": None}
+        self.data: dict[str, Any] = {"models": {}, "links": {}, "areas": {}, "active": None}
         self.dir = Path(hass.config.path(MODELS_DIR))
 
     async def async_load(self) -> None:
         data = await self._store.async_load()
         if data:
-            self.data = {"models": {}, "links": {}, "active": None, **data}
+            self.data = {"models": {}, "links": {}, "areas": {}, "active": None, **data}
         await self.hass.async_add_executor_job(self.dir.mkdir, 0o755, True, True)
 
     @callback
@@ -72,6 +73,7 @@ class ViewerStore:
         path = self.path(model_id)
         self.data["models"].pop(model_id, None)
         self.data["links"].pop(model_id, None)
+        self.data["areas"].pop(model_id, None)
         if self.data["active"] == model_id:
             self.data["active"] = next(iter(self.data["models"]), None)
         if path:
@@ -89,10 +91,27 @@ class ViewerStore:
 
     # ------------------------------------------------------------ links
     @callback
-    def set_link(self, model_id: str, global_id: str, entities: list[str], label: str | None) -> None:
+    def set_link(self, model_id: str, global_id: str, entities: list[str], label: str | None, save: bool = True) -> None:
         links = self.data["links"].setdefault(model_id, {})
         if entities:
             links[global_id] = {"entities": list(dict.fromkeys(entities)), "label": label or ""}
         else:
             links.pop(global_id, None)
+        if save:
+            self._changed()
+
+    @callback
+    def set_links(self, model_id: str, items: list[dict[str, Any]]) -> None:
+        for it in items:
+            self.set_link(model_id, it["global_id"], it["entities"], it.get("label"), save=False)
+        self._changed()
+
+    @callback
+    def set_areas(self, model_id: str, areas: dict[str, str | None]) -> None:
+        cur = self.data["areas"].setdefault(model_id, {})
+        for gid, area_id in areas.items():
+            if area_id:
+                cur[gid] = area_id
+            else:
+                cur.pop(gid, None)
         self._changed()
