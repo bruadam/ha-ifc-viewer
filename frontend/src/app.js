@@ -3,11 +3,19 @@
 import css from './style.css?inline';
 import { createViewer, esc } from './viewer.js';
 import { createSetup } from './setup.js';
+import { parseIfc } from './step.js';
+import * as geometry from './geometry.js';
 
 const TOGGLE = new Set(['light', 'switch', 'fan', 'input_boolean', 'cover', 'media_player', 'climate', 'humidifier', 'siren', 'valve', 'automation', 'script']);
 const ON_STATES = new Set(['on', 'open', 'opening', 'playing', 'heat', 'cool', 'heat_cool', 'auto', 'dry', 'fan_only', 'home', 'unlocked']);
 const BAD = new Set(['unavailable', 'unknown']);
 const LOCAL_KEY = 'ifc_viewer.model';
+const GEOMETRY_VERSION = 'g1'; // bump when the cached geometry's format or the engine's output changes
+const ICON = {
+  layers: 'M12 16 4.6 10.3 3 11.5l9 7 9-7-1.6-1.2L12 16zm0-2.5 7.4-5.7L21 6.5l-9-7-9 7 1.6 1.3L12 13.5z',
+  setup: 'M7.5 5.6 10 7 8.6 4.5 10 2 7.5 3.4 5 2l1.4 2.5L5 7l2.5-1.4zm12 9.8L17 14l1.4 2.5L17 19l2.5-1.4L22 19l-1.4-2.5L22 14l-2.5 1.4zM22 2l-2.5 1.4L17 2l1.4 2.5L17 7l2.5-1.4L22 7l-1.4-2.5L22 2zm-7.6 5.3a1 1 0 0 0-1.4 0L1.3 18.9a1 1 0 0 0 0 1.4l2.3 2.3a1 1 0 0 0 1.4 0L16.7 11a1 1 0 0 0 0-1.4l-2.3-2.3zm-1 5.5-2.1-2.1 2.4-2.4 2.1 2.1-2.4 2.4z',
+};
+const svg = (d) => `<svg viewBox="0 0 24 24"><path d="${d}"/></svg>`;
 
 export class App {
   constructor(el, hass) {
@@ -26,13 +34,14 @@ export class App {
       <div class="bar">
         <button class="ibtn menu" data-a="menu" title="Menu" hidden><svg viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg></button>
         <div class="title"><select class="models" aria-label="Model"></select></div>
-        <div class="btns">
+        <button class="ibtn layers-btn" data-a="layers" title="Show on the model" aria-haspopup="true">${svg(ICON.layers)}</button>
+        <div class="btns view">
           <button data-a="markers" class="on" title="Show the linked entities on the model">Entities</button>
           <button data-a="spaces" title="Show the rooms (IfcSpace)">Rooms</button>
           <button data-a="roof" title="Show the roof and ceilings">Roof</button>
         </div>
         <div class="btns admin" hidden>
-          <button data-a="setup" title="Create areas from the rooms and pair devices with the model">Set up</button>
+          <button data-a="setup" title="Create areas from the rooms and pair devices with the model">${svg(ICON.setup)}<span>Set up</span></button>
           <button data-a="upload" title="Upload an IFC model">Upload</button>
           <button data-a="more" title="Model options">⋯</button>
         </div>
@@ -46,11 +55,16 @@ export class App {
       <div id="view"></div>
       <div id="panel"></div>
       <div id="status"></div>
+      <div id="loading" hidden><div class="ld-card"><b class="ld-name"></b><div class="ld-step"></div><div class="ld-bar"><i></i></div></div></div>
       <div id="empty" hidden></div>
       <input type="file" id="file" accept=".ifc" hidden>`);
     this.$ = (s) => document.querySelector(s);
     this.bind();
+    geometry.preload(); // the worker's code loads while Home Assistant sends the model list
     this.setup = createSetup(this);
+    // On a phone the element panel and the setup wizard are bottom sheets: keep the model in the part above them.
+    const ro = new ResizeObserver(() => this.updateInset());
+    ro.observe(this.$('#panel')); ro.observe(document.querySelector('.setup')); ro.observe(document.documentElement);
     this.applyTheme();
     this.subscribe();
   }
@@ -69,6 +83,18 @@ export class App {
       if (this.lastStates.get(eid) !== hass.states[eid]) { changed = true; break; }
     }
     if (changed) { this.renderMarkers(); if (this.viewer.selected != null) this.renderPanel(true); }
+  }
+  updateInset() {
+    const v = this.viewer;
+    if (!v) return;
+    let covered = 0;
+    if (innerWidth <= 600) {
+      for (const sheet of [this.$('#panel.show'), document.querySelector('.setup.show')]) {
+        if (sheet) covered = Math.max(covered, innerHeight - sheet.getBoundingClientRect().top);
+      }
+    }
+    v.setInset(covered);
+    if (covered && v.selected != null && this.revealPending) { this.revealPending = false; v.reveal(v.selected); }
   }
   updateSetupButton() { this.$('[data-a="setup"]').classList.toggle('attn', !!this.viewer && this.setup.pending()); }
   setNarrow(n) { this.$('[data-a="menu"]').hidden = !n; }
@@ -109,19 +135,28 @@ export class App {
     return id;
   }
 
+  // Download, properties and geometry run side by side: the worker checks its cache (or warms up the engine)
+  // while the file downloads; the page parses the properties while the worker builds the geometry.
   async load(m) {
     if (this.loading) { this.pending = m; return; }
     this.loading = true;
     this.unload();
-    this.status(`Downloading ${m.name}…`, true);
+    const t0 = performance.now();
+    this.progress(m.name, 'Downloading…', 0.02);
     try {
-      const r = await this.hass.fetchWithAuth(`/api/ifc_viewer/model/${m.id}`);
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      const buf = new Uint8Array(await r.arrayBuffer());
+      const bytes = this.download(m, (f) => this.progress(m.name, `Downloading… ${Math.round(f * 100)}%`, 0.02 + f * 0.38));
+      const geo = geometry.meshes(`${m.id}:${m.uploaded}:${GEOMETRY_VERSION}`, `${m.id}:`, bytes,
+        () => this.progress(m.name, 'Building the 3D model…', 0.45, true));
+      const buf = await bytes;
+      this.progress(m.name, 'Reading properties…', 0.42, true);
+      await new Promise((r) => setTimeout(r, 0)); // let the card paint before the parse
+      const meta = parseIfc(new TextDecoder().decode(buf));
+      const { meshes, cached } = await geo;
+      this.progress(m.name, 'Drawing…', 0.92);
+      await new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
       this.viewer = await createViewer({
-        root: this.$('#view'), buf, name: m.name,
+        root: this.$('#view'), meta, meshes, name: m.name,
         hooks: {
-          progress: (t) => this.status(t, true),
           onSelect: (id) => {
             if (this.pick && id != null) { const p = this.pick; this.pick = null; p.cb(id); }
             this.query = ''; this.renderPanel();
@@ -134,7 +169,9 @@ export class App {
       this.viewer.setOption('spaces', this.$('[data-a="spaces"]').classList.contains('on'));
       this.viewer.setOption('roof', this.$('[data-a="roof"]').classList.contains('on'));
       this.renderMarkers();
-      this.status(`${m.name} · ${this.viewer.elements.size} elements · ${Object.keys(this.links()).length} linked`);
+      this.progress(null);
+      const secs = ((performance.now() - t0) / 1000).toFixed(1);
+      this.status(`${m.name} · ${this.viewer.elements.size} elements · ${Object.keys(this.links()).length} linked · ${secs} s${cached ? ' (cached)' : ''}`);
       this.updateSetupButton();
       let seen = true;
       try { seen = !!localStorage.getItem('ifc_viewer.setup.' + m.id); localStorage.setItem('ifc_viewer.setup.' + m.id, '1'); } catch { /* private mode */ }
@@ -142,10 +179,42 @@ export class App {
     } catch (e) {
       console.error(e);
       this.unload();
+      this.progress(null);
       this.status(`Could not load ${m.name}: ${e.message}`);
     }
     this.loading = false;
     if (this.pending) { const p = this.pending; this.pending = null; this.onData(this.data); if (p.id !== this.loaded?.id) this.load(p); }
+  }
+  // The IFC file, with progress. ?v= changes with every upload, so the browser may keep it.
+  async download(m, onProgress) {
+    const r = await this.hass.fetchWithAuth(`/api/ifc_viewer/model/${m.id}?v=${encodeURIComponent(m.uploaded)}`);
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const total = m.size || +r.headers.get('Content-Length') || 0; // m.size: the file, not the gzipped transfer
+    if (!r.body || !total) return new Uint8Array(await r.arrayBuffer());
+    const reader = r.body.getReader(), chunks = [];
+    let n = 0;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      chunks.push(value);
+      n += value.length;
+      onProgress(Math.min(1, n / total));
+    }
+    const out = new Uint8Array(n);
+    let o = 0;
+    for (const c of chunks) { out.set(c, o); o += c.length; }
+    return out;
+  }
+  progress(name, step, frac, busy = false) {
+    const box = this.$('#loading');
+    if (name == null) { box.hidden = true; return; }
+    this.status('');
+    box.hidden = false;
+    box.querySelector('.ld-name').textContent = name;
+    box.querySelector('.ld-step').textContent = step;
+    const bar = box.querySelector('.ld-bar i');
+    bar.style.width = `${Math.round(frac * 100)}%`;
+    box.querySelector('.ld-bar').classList.toggle('busy', busy);
   }
   unload() {
     this.setup?.close();
@@ -241,7 +310,7 @@ export class App {
   renderPanel(keepInput = false) {
     const panel = this.$('#panel');
     const v = this.viewer, id = v?.selected;
-    if (id == null || !v) { panel.classList.remove('show'); panel.innerHTML = ''; return; }
+    if (id == null || !v) { panel.classList.remove('show'); panel.innerHTML = ''; this.panelFor = null; this.updateInset(); return; }
     if (keepInput && panel.contains(document.activeElement) && document.activeElement.matches('input')) return this.renderEntityRows();
     const e = v.meta.entity(id);
     const room = v.roomOf(id), roomEnt = room && room.id !== id ? v.meta.entity(room.id) : null;
@@ -258,7 +327,10 @@ export class App {
       <details class="ifc"><summary>IFC properties</summary><div class="ifc-body"></div></details>
       <div class="actions"><button data-a="fit">Zoom to</button><button data-a="isolate">Isolate</button><button data-a="copy-gid">Copy GlobalId</button></div>`;
     this.renderEntityRows();
+    const opening = !panel.classList.contains('show') || this.panelFor !== id;
+    this.panelFor = id;
     panel.classList.add('show');
+    if (opening) { this.revealPending = true; requestAnimationFrame(() => this.updateInset()); }
     panel.querySelector('details.ifc').addEventListener('toggle', (ev) => { if (ev.target.open) ev.target.querySelector('.ifc-body').innerHTML = propsHtml(v, id); }, { once: true });
   }
   renderEntityRows() {
@@ -400,7 +472,11 @@ export class App {
       this.onData(this.data);
     });
     const pop = this.$('.menu-pop');
-    document.addEventListener('pointerdown', (e) => { if (!e.target.closest('.menu-pop,[data-a="more"]')) pop.hidden = true; });
+    const bar = this.$('.bar');
+    document.addEventListener('pointerdown', (e) => {
+      if (!e.target.closest('.menu-pop,[data-a="more"]')) pop.hidden = true;
+      if (!e.target.closest('.btns.view,[data-a="layers"]')) bar.classList.remove('layers-open');
+    });
 
     document.addEventListener('click', async (e) => {
       const b = e.target.closest('[data-a],[data-add],.lk');
@@ -411,6 +487,7 @@ export class App {
       const eid = b.closest('[data-eid]')?.dataset.eid;
       switch (a) {
         case 'menu': this.el.dispatchEvent(new Event('hass-toggle-menu', { bubbles: true, composed: true })); break;
+        case 'layers': bar.classList.toggle('layers-open'); break;
         case 'markers': case 'spaces': case 'roof': b.classList.toggle('on'); v?.setOption(a, b.classList.contains('on')); break;
         case 'setup': if (this.viewer) this.setup.isOpen ? this.setup.close() : this.setup.open(); break;
         case 'upload': pop.hidden = true; replaceId = null; file.click(); break;

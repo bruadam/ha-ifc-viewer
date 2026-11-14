@@ -9,7 +9,7 @@ const FACES = [ // BoxGeometry face order: +x, -x, +y, -y, +z, -z
 
 export function createViewCube(ctx, cams) {
   const { THREE, renderer } = ctx;
-  const SIZE = () => (ctx.view.clientWidth < 600 ? 84 : 110);
+  const SIZE = () => (ctx.view.clientWidth < 600 ? 66 : 110);
   const scene = new THREE.Scene();
   const cam = new THREE.OrthographicCamera(-1.75, 1.75, 1.75, -1.75, 0.1, 20);
   scene.add(new THREE.AmbientLight(0xffffff, 2.2));

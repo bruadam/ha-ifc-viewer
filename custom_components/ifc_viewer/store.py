@@ -77,17 +77,24 @@ class ViewerStore:
         if self.data["active"] == model_id:
             self.data["active"] = next(iter(self.data["models"]), None)
         if path:
-            await self.hass.async_add_executor_job(lambda: path.unlink(missing_ok=True))
+            await self.hass.async_add_executor_job(self._remove, path)
         self._changed()
 
     async def async_replace_file(self, model_id: str, tmp: Path, size: int) -> None:
         """A new version of a model's IFC: links stay (they are keyed by GlobalId)."""
         dest = self.path(model_id)
+        await self.hass.async_add_executor_job(self._remove, dest)
         await self.hass.async_add_executor_job(shutil.move, tmp, dest)
         model = self.data["models"][model_id]
         model["size"] = size
         model["uploaded"] = datetime.now(UTC).isoformat()
         self._changed()
+
+    @staticmethod
+    def _remove(path: Path) -> None:
+        """The model file and its gzipped copy (http.ensure_gzip)."""
+        path.unlink(missing_ok=True)
+        path.with_name(path.name + ".gz").unlink(missing_ok=True)
 
     # ------------------------------------------------------------ links
     @callback

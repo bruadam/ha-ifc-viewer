@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import gzip
 from http import HTTPStatus
+import os
 from pathlib import Path
+import shutil
 
 from aiohttp import web
 
@@ -67,8 +70,23 @@ class UploadView(HomeAssistantView):
         return self.json(store.add_model(model_id, Path(name).stem or name, size))
 
 
+def ensure_gzip(path: Path) -> None:
+    """Write <model>.ifc.gz next to the model once: aiohttp then sends it to browsers that accept gzip
+    (IFC is text and shrinks 5-10x). Runs in the executor."""
+    gz = path.with_name(path.name + ".gz")
+    try:
+        if gz.exists() and gz.stat().st_mtime >= path.stat().st_mtime:
+            return
+        tmp = gz.with_name(gz.name + ".part")
+        with path.open("rb") as src, gzip.open(tmp, "wb", compresslevel=6) as dst:
+            shutil.copyfileobj(src, dst, 1 << 20)
+        os.replace(tmp, gz)
+    except OSError:
+        gz.unlink(missing_ok=True)
+
+
 class ModelView(HomeAssistantView):
-    """GET a model's IFC file."""
+    """GET a model's IFC file. With ?v=<uploaded> the browser may keep it: a new upload changes the URL."""
 
     url = API_MODEL
     name = "api:ifc_viewer:model"
@@ -80,4 +98,6 @@ class ModelView(HomeAssistantView):
         path = store.path(model_id) if store else None
         if path is None or not await hass.async_add_executor_job(path.exists):
             return self.json_message("Unknown model", HTTPStatus.NOT_FOUND)
-        return web.FileResponse(path, headers={"Cache-Control": "no-cache", "Content-Type": "application/octet-stream"})
+        await hass.async_add_executor_job(ensure_gzip, path)
+        cache = "private, max-age=31536000, immutable" if request.query.get("v") else "no-cache"
+        return web.FileResponse(path, headers={"Cache-Control": cache, "Content-Type": "application/octet-stream"})

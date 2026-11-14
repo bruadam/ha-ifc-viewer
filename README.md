@@ -15,6 +15,8 @@ The viewer is built on [ifc-lite](https://github.com/LTplus-AG/ifc-lite) (Rust/W
 - An **Entities** tab lists every link. The **Linked to Home Assistant** lens colours linked elements on the model.
 - Links update live on every open device. `HomeAssistant_<name>` properties already in the IFC (value = entity id) are picked up too.
 - Several models can be uploaded; each browser remembers which one it shows.
+- **On phones** the top bar folds into icons, the element panel and the setup wizard are bottom sheets, and the model moves up so what you tapped stays in view above them.
+- **Fast to open:** the geometry is built in a background worker while the file downloads, and kept in the browser (IndexedDB), so opening the panel again skips the 10 MB geometry engine. Files are sent gzipped.
 
 **Set up Home Assistant from the model** (**Set up** in the top bar; opens by itself for a new model)
 1. **Rooms:** each IfcSpace becomes an HA area and each storey a floor. You can match existing ones instead; room names are matched across languages, e.g. *Køkken* ↔ *Kitchen*, *Opholdsrum* ↔ *Living Room*. Shafts and technical spaces are left out by default.
@@ -58,10 +60,11 @@ Everyone with a Home Assistant login can view the models and use the controls. O
 
 | Part | Where |
 |---|---|
-| Uploaded IFC files | `config/ifc_viewer/<id>.ifc` |
+| Uploaded IFC files | `config/ifc_viewer/<id>.ifc`, and a gzipped copy made on first download |
 | Models and links | `config/.storage/ifc_viewer.data`, keyed by model and IFC GlobalId; included in HA backups |
-| Panel | `custom_components/ifc_viewer/frontend/`, served at `/ifc_viewer_static/` and shown in an iframe panel |
-| API | websocket `ifc_viewer/get`, `ifc_viewer/subscribe`, `ifc_viewer/link/set`, `ifc_viewer/model/update`, `ifc_viewer/model/delete`; HTTP `POST /api/ifc_viewer/upload?name=…[&replace=<id>]`, `GET /api/ifc_viewer/model/<id>` |
+| Panel | `custom_components/ifc_viewer/frontend/`, served at `/ifc_viewer_static/` (with precompressed `.gz` copies) and shown in an iframe panel |
+| Geometry cache | the browser's IndexedDB (`ifc_viewer`), per model and upload; the last 6 models are kept |
+| API | websocket `ifc_viewer/get`, `ifc_viewer/subscribe`, `ifc_viewer/link/set`, `ifc_viewer/link/set_many`, `ifc_viewer/areas/set`, `ifc_viewer/model/update`, `ifc_viewer/model/delete`; HTTP `POST /api/ifc_viewer/upload?name=…[&replace=<id>]`, `GET /api/ifc_viewer/model/<id>` |
 
 The model never leaves your Home Assistant: geometry is computed in the browser.
 

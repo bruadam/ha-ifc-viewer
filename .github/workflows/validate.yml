@@ -30,4 +30,4 @@ jobs:
       - run: npm run build
         working-directory: frontend
       - name: Committed build is up to date
-        run: git diff --stat --exit-code -- custom_components/ifc_viewer/frontend
+        run: git diff --stat --exit-code -- custom_components/ifc_viewer/frontend ':(exclude)*.gz'

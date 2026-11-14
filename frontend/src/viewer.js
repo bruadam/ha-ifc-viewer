@@ -4,30 +4,20 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
-import { GeometryProcessor } from '@ifc-lite/geometry';
-import { parseIfc, typeLabel } from './step.js';
+import { typeLabel } from './step.js';
 import { createTools } from './tools/index.js';
 
 export const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
 const SKIP = new Set(['IfcOpeningElement', 'IfcVirtualElement']);
 const HIGHLIGHT = new THREE.Color(0x03a9f4);
 
-let processor = null; // the WASM geometry engine, started once
-async function geometry() {
-  if (!processor) { processor = new GeometryProcessor(); await processor.init(); }
-  return processor;
-}
-
-export async function createViewer({ root, buf, name, hooks }) {
+// meta: parseIfc() of the file; meshes: from the geometry worker (geometry.js)
+export async function createViewer({ root, meta, meshes, name, hooks }) {
   const stage = document.createElement('div');
   stage.className = 'stage';
   root.append(stage);
 
   // ------------------------------------------------------------ model
-  hooks.progress?.('Reading properties…');
-  const meta = parseIfc(new TextDecoder().decode(buf));
-  hooks.progress?.('Building geometry…');
-  const res = await (await geometry()).process(buf);
 
   // ------------------------------------------------------------ scene
   const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' });
@@ -64,7 +54,7 @@ export async function createViewer({ root, buf, name, hooks }) {
   const ui = { spaces: false, markers: true, roof: false };
 
   const elements = new Map(); // expressId -> { id, type, group, meshes, box }
-  for (const m of res.meshes) {
+  for (const m of meshes) {
     if (SKIP.has(m.ifcType)) continue;
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.BufferAttribute(m.positions, 3));
@@ -129,10 +119,26 @@ export async function createViewer({ root, buf, name, hooks }) {
   }
 
   // ------------------------------------------------------------ view + resize
+  // Distance at which every corner of the model box is in view, looking along -dir (tighter than the bounding
+  // sphere, which leaves a narrow model tiny on a phone held upright).
+  function fitDistance(c, dir) {
+    const fwd = dir.clone().negate(), right = new THREE.Vector3().crossVectors(fwd, perspCam.up).normalize();
+    const up = new THREE.Vector3().crossVectors(right, fwd);
+    const tanV = Math.tan(THREE.MathUtils.degToRad(perspCam.fov / 2)) * (1 - inset / Math.max(1, root.clientHeight)) * 0.84; // room for the top bar and toolbar
+    const tanH = Math.tan(THREE.MathUtils.degToRad(perspCam.fov / 2)) * perspCam.aspect * 0.9;
+    let d = 0;
+    const p = new THREE.Vector3();
+    for (let i = 0; i < 8; i++) {
+      p.set(i & 1 ? modelBox.max.x : modelBox.min.x, i & 2 ? modelBox.max.y : modelBox.min.y, i & 4 ? modelBox.max.z : modelBox.min.z).sub(c);
+      const z = p.dot(dir); // towards the camera
+      d = Math.max(d, z + Math.abs(p.dot(right)) / tanH, z + Math.abs(p.dot(up)) / tanV);
+    }
+    return Math.max(d, radius * 0.5);
+  }
   function setView() {
     const c = modelBox.getCenter(new THREE.Vector3());
     const dir = new THREE.Vector3(-0.8, 0.95, 1).normalize();
-    const fit = radius / Math.sin(THREE.MathUtils.degToRad(perspCam.fov / 2)) / Math.min(1, perspCam.aspect) * 0.9;
+    const fit = fitDistance(c, dir);
     controls.target.copy(c);
     perspCam.position.copy(c).addScaledVector(dir, fit);
     perspCam.lookAt(c);
@@ -141,14 +147,22 @@ export async function createViewer({ root, buf, name, hooks }) {
     redraw();
   }
   let tools = null;
+  let inset = 0; // px at the bottom covered by a sheet (phone): the view centre moves up by half of it
+  function applyInset(w, h) {
+    for (const cam of new Set([perspCam, camera])) {
+      if (inset) cam.setViewOffset(w, h, 0, inset / 2, w, h); else cam.clearViewOffset();
+    }
+  }
   function resize() {
     const w = root.clientWidth, h = root.clientHeight;
     if (!w || !h) return;
     renderer.setSize(w, h);
     labels.setSize(w, h);
     perspCam.aspect = w / h;
+    applyInset(w, h);
     perspCam.updateProjectionMatrix();
     tools?.onResize(w, h);
+    if (camera !== perspCam) { applyInset(w, h); camera.updateProjectionMatrix(); }
     document.documentElement.classList.toggle('narrow', w < 600);
     redraw();
   }
@@ -262,7 +276,7 @@ export async function createViewer({ root, buf, name, hooks }) {
   // ------------------------------------------------------------ BIM tools
   tools = createTools({
     THREE, scene, world, renderer, controls, view: root, labels, meta, elements, esc, typeLabel,
-    meshes: res.meshes.filter((m) => !SKIP.has(m.ifcType)), extras: () => [], modelBox: () => modelBox,
+    meshes: meshes.filter((m) => !SKIP.has(m.ifcType)), extras: () => [], modelBox: () => modelBox,
     camera: () => camera, setCamera: (c) => { camera = c; controls.object = c; resize(); redraw(); },
     pickables: () => [...elements.values()].flatMap((el) => (el.type === 'IfcSpace' ? [] : el.meshes)),
     selectId: (id) => select(id), selectedIds, refreshHighlight, applyFilters, redraw, setView: () => setView(),
@@ -283,9 +297,25 @@ export async function createViewer({ root, buf, name, hooks }) {
   });
 
   function setOption(k, v) { ui[k] = v; applyFilters(); }
+  // Pan (keeping the zoom) so an element is in the visible part of the screen, e.g. above the phone's sheet.
+  function reveal(id) {
+    const el = elements.get(id);
+    if (!el) return;
+    const c = el.box.getCenter(new THREE.Vector3());
+    const p = c.clone().project(camera);
+    const h = root.clientHeight, y = ((1 - p.y) / 2) * h;
+    if (Math.abs(p.x) < 0.85 && y > 70 && y < h - inset - 30 && p.z < 1) return;
+    tools.cams.animateTo(camera.position.clone().sub(controls.target), { target: c });
+  }
+  function setInset(px) {
+    px = Math.max(0, Math.round(px));
+    if (px === inset) return;
+    inset = px;
+    resize();
+  }
 
   return {
-    meta, elements, byGlobalId, tools, roomOf, select, setMarkers, setOption, redraw,
+    meta, elements, byGlobalId, tools, roomOf, select, setMarkers, setOption, setInset, reveal, redraw,
     get selected() { return selected; },
     options: ui,
     entityName: (id) => meta.entity(id)?.name || typeLabel(elements.get(id)?.type || ''),
