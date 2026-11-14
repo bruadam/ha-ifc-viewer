@@ -1,0 +1,146 @@
+/* BIM tools: bottom toolbar, model dock, tool panel, view cube buttons, measure labels, 2D plan, help.
+   Uses the page's theme variables (--panel, --chip, --text, --muted, --line, --accent). */
+:root { --dock-w: 320px; --tb-h: 46px; --shadow: 0 4px 18px rgba(0,0,0,.18); --radius: 12px; }
+
+/* ---- toolbar: floating, bottom centre */
+.tbar { position: fixed; left: 50%; bottom: 12px; transform: translateX(-50%); z-index: 7; display: flex; align-items: center; gap: 2px;
+  padding: 4px; background: var(--panel); border-radius: 14px; box-shadow: var(--shadow); border: 1px solid var(--line);
+  backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); max-width: calc(100% - 24px); overflow-x: auto; scrollbar-width: none; }
+.tbar::-webkit-scrollbar { display: none; }
+.tbar button { flex: none; width: 38px; height: 38px; display: grid; place-items: center; border: 0; border-radius: 10px; background: none;
+  color: var(--text); cursor: pointer; position: relative; transition: background .12s, color .12s; }
+.tbar button:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.tbar button.on { background: var(--accent); color: #fff; }
+.tbar button.attn::after { content: ''; position: absolute; top: 6px; right: 6px; width: 7px; height: 7px; border-radius: 50%; background: var(--poor); }
+.tbar button:disabled { opacity: .35; cursor: default; }
+.tbar .tsep { width: 1px; height: 24px; background: var(--line); margin: 0 4px; flex: none; }
+
+/* ---- contextual panel (section / measure), above the toolbar */
+.tpanel { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(12px + var(--tb-h) + 10px); z-index: 7; width: min(360px, calc(100% - 24px));
+  background: var(--panel); border-radius: var(--radius); box-shadow: var(--shadow); border: 1px solid var(--line); padding: 10px 12px; display: none; font-size: 13px; }
+.tpanel.show { display: block; }
+.tpanel .tp-h + .seg, .tpanel .tp-h + .note { margin-top: 2px; }
+.tp-h { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.tp-h svg { color: var(--accent); }
+.tp-h .x, .dock .x, .help .x { margin-left: auto; border: 0; background: none; color: var(--muted); font-size: 20px; line-height: 1; cursor: pointer; padding: 0 4px; }
+.tpanel .tp-h:not(:first-child) { border-top: 1px solid var(--line); padding-top: 10px; margin-top: 10px; }
+.tp-row { display: flex; align-items: center; gap: 10px; margin: 8px 0 4px; flex-wrap: wrap; }
+.tp-row input[type=range] { flex: 1; min-width: 80px; accent-color: var(--accent); }
+.tp-row .num { font-variant-numeric: tabular-nums; min-width: 56px; text-align: right; font-weight: 600; }
+.tp-row.box .lbl { width: 62px; color: var(--muted); font-size: 12px; }
+.tp-row label { display: flex; align-items: center; gap: 5px; }
+.tp-row button, .rule-add button, .lens-list button, .plan2d-bar button { border: 1px solid var(--line); background: none; color: var(--accent); border-radius: 8px; padding: 4px 10px; font: inherit; font-size: 12px; cursor: pointer; }
+.tp-row button:disabled { opacity: .45; cursor: default; }
+.seg { display: flex; border: 1px solid var(--line); border-radius: 9px; overflow: hidden; }
+.seg button { flex: 1; border: 0; background: none; color: var(--text); padding: 5px 6px; font: inherit; font-size: 12px; cursor: pointer; }
+.seg button + button { border-left: 1px solid var(--line); }
+.seg button.on { background: var(--accent); color: #fff; }
+.seg.small button { padding: 3px 8px; }
+
+/* ---- dock: model tree + Lens */
+.dock { position: fixed; left: 12px; top: 60px; bottom: 12px; width: var(--dock-w); z-index: 6; display: none; flex-direction: column;
+  background: var(--bg); border-radius: var(--radius); box-shadow: var(--shadow); border: 1px solid var(--line); overflow: hidden; }
+.dock.show { display: flex; }
+.dock-tabs { display: flex; align-items: center; gap: 4px; padding: 8px 8px 0; border-bottom: 1px solid var(--line); }
+.dock-tabs [data-tab] { border: 0; background: none; color: var(--muted); font: inherit; font-weight: 600; padding: 6px 10px 8px; cursor: pointer; border-bottom: 2px solid transparent; }
+.dock-tabs [data-tab].on { color: var(--text); border-bottom-color: var(--accent); }
+.dock-body { flex: 1; overflow: auto; padding: 8px 10px 10px; display: flex; flex-direction: column; min-height: 0; }
+.tree-tools { display: flex; flex-direction: column; gap: 6px; margin-bottom: 6px; }
+.tsearch { width: 100%; font: inherit; font-size: 13px; padding: 6px 9px; border-radius: 8px; border: 1px solid var(--line); background: var(--chip); color: var(--text); }
+.tree { flex: 1; overflow: auto; margin: 0 -4px; min-height: 0; }
+.tn { display: flex; align-items: center; gap: 4px; padding: 3px 4px 3px calc(4px + var(--d) * 14px); border-radius: 6px; cursor: pointer; font-size: 13px; white-space: nowrap; }
+.tn:hover { background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.tn.sel { background: color-mix(in srgb, var(--accent) 18%, transparent); }
+.tn .tw { width: 12px; flex: none; color: var(--muted); font-size: 11px; text-align: center; }
+.tn .ti { width: 14px; flex: none; color: var(--muted); text-align: center; }
+.tn .tl { overflow: hidden; text-overflow: ellipsis; flex: 1; min-width: 0; }
+.tn .te { flex: none; border: 0; background: none; color: var(--muted); cursor: pointer; padding: 0 2px; display: grid; place-items: center; opacity: 0; }
+.tn .te svg { width: 15px; height: 15px; }
+.tn:hover .te, .tn .te.off { opacity: 1; }
+.tn .te.off { color: var(--bad); }
+.tn.grp .tl b { font-weight: 600; }
+.tree-foot { padding-top: 6px; border-top: 1px solid var(--line); margin-top: 6px; }
+.tree-foot a { color: var(--accent); }
+.lens-list { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+.lens-list button.on { background: var(--accent); color: #fff; border-color: var(--accent); }
+.legend-list { display: grid; gap: 2px; margin: 8px 0; }
+.lg { display: flex; align-items: center; gap: 8px; padding: 4px 6px; border-radius: 6px; cursor: pointer; font-size: 13px; }
+.lg:hover { background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.lg .sw { width: 14px; height: 14px; border-radius: 4px; flex: none; box-shadow: inset 0 0 0 1px rgba(0,0,0,.15); }
+.lg .tl { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lg .x { font-size: 16px; }
+.rule-add { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 8px; }
+.rule-add select, .rule-add input:not([type=color]), .tp-row select { font: inherit; font-size: 12px; background: var(--chip); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 4px; max-width: 100%; }
+.rule-add select[data-rp], .tp-row select { flex: 1; min-width: 0; }
+.rule-add input[type=color] { width: 30px; height: 26px; padding: 0; border: 1px solid var(--line); border-radius: 6px; background: none; }
+/* legends and the left HUD move aside while the dock is open */
+.dock-open #dlegend { left: calc(24px + var(--dock-w)); }
+
+/* ---- view cube */
+.vc { position: fixed; top: 64px; right: 12px; z-index: 5; display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.vc-hit { width: 100%; cursor: pointer; touch-action: none; }
+.vc-btns { display: flex; gap: 4px; }
+.vc-btns button { border: 1px solid var(--line); background: var(--chip); color: var(--text); border-radius: 8px; height: 26px; min-width: 30px; padding: 0 8px;
+  font: inherit; font-size: 12px; cursor: pointer; box-shadow: 0 1px 3px rgba(0,0,0,.12); }
+.vc-btns button.on { color: var(--accent); font-weight: 600; }
+#legend { right: 140px !important; }
+
+/* ---- properties panel (main.js #panel) moves to the right, under the cube */
+#panel { left: auto; right: 12px; top: 210px; bottom: 12px; max-height: none; width: min(360px, calc(100% - 24px)); }
+#panel.show { display: block; }
+.props-attrs { display: grid; grid-template-columns: auto 1fr; gap: 3px 12px; font-size: 12px; margin: 6px 0; }
+.props-attrs > div:nth-child(odd) { color: var(--muted); }
+.props-attrs > div:nth-child(even) { word-break: break-all; }
+.props-attrs code { font-size: 11px; }
+.pset { border-top: 1px solid var(--line); padding-top: 6px; margin-top: 6px; }
+.pset summary { font-weight: 600; color: var(--text); font-size: 12px; display: flex; justify-content: space-between; }
+.pset summary .note { font-weight: 400; }
+.pset .rows { font-size: 12px; margin: 4px 0 2px; }
+.copy { border: 0; background: none; color: var(--accent); cursor: pointer; font-size: 11px; padding: 0 2px; }
+.badge { display: inline-block; padding: 0 6px; border-radius: 999px; background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); font-size: 11px; font-weight: 600; margin-right: 4px; }
+
+/* ---- measuring */
+.mlabel { background: #ff3d00; color: #fff; border-radius: 6px; padding: 2px 7px 3px; font-size: 12px; line-height: 1.25; text-align: center;
+  box-shadow: 0 1px 4px rgba(0,0,0,.3); white-space: nowrap; pointer-events: none; }
+.mlabel small { display: block; font-size: 10px; opacity: .85; }
+.mlabel.area { background: #d84315; }
+.clipped { visibility: hidden !important; }
+
+/* ---- help */
+.help { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 20; width: min(420px, calc(100% - 24px)); display: none;
+  background: var(--panel); border-radius: 14px; box-shadow: 0 10px 40px rgba(0,0,0,.3); padding: 14px 16px; }
+.help.show { display: block; }
+.help .keys { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; font-size: 13px; align-items: center; }
+kbd { font: 600 11px/1 ui-monospace, SFMono-Regular, Menlo, monospace; padding: 4px 6px; border-radius: 5px; border: 1px solid var(--line); background: var(--chip); box-shadow: inset 0 -1px 0 var(--line); justify-self: start; }
+
+/* ---- 2D plan */
+.plan2d { position: fixed; inset: 12px; z-index: 15; display: none; flex-direction: column; background: var(--panel); border-radius: 14px; box-shadow: 0 10px 40px rgba(0,0,0,.3); overflow: hidden; }
+.plan2d.show { display: flex; }
+.plan2d-bar { display: flex; align-items: center; gap: 12px; padding: 10px 14px; border-bottom: 1px solid var(--line); flex-wrap: wrap; font-size: 13px; }
+.plan2d-bar label { display: flex; align-items: center; gap: 6px; }
+.plan2d-bar .grow { flex: 1; }
+.plan2d-bar .x { border: 0; font-size: 22px; color: var(--muted); padding: 0 4px; }
+.plan2d-bar input[type=range] { accent-color: var(--accent); }
+.plan2d-stage { flex: 1; overflow: hidden; position: relative; cursor: grab; background: #fff; touch-action: none; }
+.plan2d-stage:active { cursor: grabbing; }
+.plan2d-svg { position: absolute; inset: 0; transform-origin: 0 0; }
+.plan2d-svg .pick { cursor: pointer; }
+.plan2d-svg .pick:hover { stroke: #0288d1 !important; }
+.plan2d-svg .sel { stroke: #0288d1 !important; stroke-width: 0.6 !important; fill: rgba(2,136,209,.18) !important; }
+
+/* ---- small screens: toolbar full width, panels as sheets */
+@media (max-width: 600px) {
+  :root { --dock-w: calc(100% - 24px); }
+  .tbar { left: 12px; right: 12px; transform: none; max-width: none; }
+  .tbar button { width: 36px; height: 36px; }
+  .tpanel { bottom: calc(12px + var(--tb-h) + 8px); }
+  #panel { top: auto; bottom: calc(12px + var(--tb-h) + 8px); left: 12px; right: 12px; width: auto; max-height: 45%; }
+  .dock { top: 12px; bottom: calc(12px + var(--tb-h) + 8px); z-index: 8; }
+  .vc { top: 60px; }
+  #legend { right: 108px !important; top: 60px !important; bottom: auto !important; }
+  .dock-open #dlegend { display: none !important; }
+}
+.mini .tbar, .mini .tpanel, .mini .dock, .mini .vc, .mini .help, .mini .plan2d { display: none !important; }
+#status { right: auto; left: 12px; }
+.dock-open #status { display: none; }
+@media (max-width: 600px) { #dlegend { bottom: calc(12px + var(--tb-h) + 8px) !important; } }

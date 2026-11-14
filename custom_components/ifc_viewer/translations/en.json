@@ -1,0 +1,11 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "IFC Viewer",
+        "description": "Adds an IFC item to the sidebar. Upload your building's IFC model there and link Home Assistant entities to its elements."
+      }
+    },
+    "abort": { "single_instance_allowed": "IFC Viewer is already set up." }
+  }
+}
